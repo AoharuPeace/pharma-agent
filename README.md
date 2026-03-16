@@ -173,9 +173,9 @@ Built by a **licensed pharmacist** transitioning into AI engineering.
 
 The motivation: clinical pharmacists spend enormous cognitive effort on polypharmacy cases. This project explores how multi-agent LLM systems can model the *structure* of that reasoning — not replace it.
 
-- Background: Pharm.D., TOEIC 825, HSK4
+- Background: Pharmacist, TOEIC 825, HSK4
 - Stack: Python, FastAPI, React, Claude API, scikit-learn
-- Other projects: [Drug-Drug Interaction Prediction with ML](../ddi-prediction)
+- Other projects: [Drug-Drug Interaction Prediction with ML]([../ddi-prediction](https://github.com/AoharuPeace/drug-interaction-prediction))
 
 ---
 
