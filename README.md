@@ -175,7 +175,7 @@ The motivation: clinical pharmacists spend enormous cognitive effort on polyphar
 
 - Background: Pharmacist, TOEIC 825, HSK4
 - Stack: Python, FastAPI, React, Claude API, scikit-learn
-- Other projects: [Drug-Drug Interaction Prediction with ML]([../ddi-prediction](https://github.com/AoharuPeace/drug-interaction-prediction))
+- Other projects: [Drug-Drug Interaction Prediction with ML]([https://github.com/AoharuPeace/drug-interaction-prediction])
 
 ---
 
