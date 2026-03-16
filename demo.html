@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PharmaAgent — Multi-Agent Drug Safety Simulation</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0e14;font-family:'IBM Plex Sans',sans-serif;color:#c9d1d9}
+@keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes glow{0%,100%{box-shadow:0 0 20px #81C78422}50%{box-shadow:0 0 40px #81C78444}}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#0a0e14}
+::-webkit-scrollbar-thumb{background:#1e2530;border-radius:3px}
+input::placeholder,textarea::placeholder{color:#3d4a5a}
+input:focus,textarea:focus{outline:none;border-color:#81C784!important}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const AGENT_CONFIG = {
+  patient:    { name:"Patient Agent",    emoji:"🧑", color:"#64B5F6", label:"PATIENT PERSPECTIVE" },
+  pharmacist: { name:"Pharmacist Agent", emoji:"💊", color:"#81C784", label:"PHARMACIST REVIEW" },
+  physician:  { name:"Physician Agent",  emoji:"🩺", color:"#FFB74D", label:"PHYSICIAN ANALYSIS" },
+  arbitrator: { name:"Safety Consensus", emoji:"⚖️", color:"#CE93D8", label:"CONSENSUS REPORT" },
+};
+
+const EXAMPLE_CASES = [
+  { label:"Warfarin + Aspirin",    drugs:["Warfarin 5mg","Aspirin 100mg"],       indication:"Atrial fibrillation + CV prophylaxis",     patient_info:"68-year-old male, GI bleeding history, INR 2.5" },
+  { label:"SSRIs + Tramadol",      drugs:["Sertraline 50mg","Tramadol 50mg"],    indication:"Depression + acute pain",                  patient_info:"45-year-old female, no known allergies" },
+  { label:"Metformin + Contrast",  drugs:["Metformin 500mg","Iodinated Contrast"], indication:"Type 2 diabetes + CT with contrast",    patient_info:"58-year-old male, eGFR 55" },
+];
+
+const DEMO_RESPONSES = {
+  warfarin:{
+    patient:`I'm very concerned about taking Warfarin and Aspirin together. I've already had a stomach bleed two years ago, and I'm worried this combination might cause another one. Should I avoid certain foods or activities while on this combination? I also take fish oil supplements daily — is that something I need to mention to my doctor? How will I know if something is going wrong internally?`,
+    pharmacist:`This combination represents a MAJOR pharmacodynamic drug interaction. Warfarin inhibits vitamin K-dependent clotting factor synthesis (II, VII, IX, X) via VKORC1, while aspirin irreversibly inhibits COX-1-mediated platelet thromboxane A2 production — creating dual hemostatic impairment through independent mechanisms. Additionally, aspirin displaces warfarin from albumin binding sites, transiently elevating free warfarin concentration and potentiating anticoagulant effect. CYP2C9 metabolism is not directly affected, but the synergistic bleeding risk — particularly gastrointestinal and intracranial hemorrhage — increases 3-fold above warfarin monotherapy. Given the patient's documented GI bleeding history, this combination demands a compelling clinical justification. Concomitant PPI therapy and INR monitoring every 3–5 days during initiation are strongly recommended if continued.`,
+    physician:`From a clinical standpoint, the combination of warfarin and aspirin requires specific guideline-supported indications to justify use. ACC/AHA 2019 guidelines do NOT recommend adding aspirin to warfarin for routine atrial fibrillation management, as the incremental thromboembolic benefit is minimal while major bleeding risk increases substantially. This combination may be appropriate post-ACS with concurrent AF, or with mechanical heart valves — but each indication must be explicitly documented. The patient's prior GI bleed represents a high-risk modifier per HAS-BLED scoring. If the combination is deemed necessary, monitoring should include weekly INR for 4 weeks, baseline CBC, and stool guaiac testing if symptoms develop.`,
+    arbitrator:`## Risk Assessment\n- Overall Risk Level: [HIGH]\n- Key Interactions Found: Major pharmacodynamic interaction — dual anticoagulation (warfarin + aspirin)\n\n## Critical Warnings\n- 3× increased risk of major GI and intracranial hemorrhage vs warfarin alone\n- Aspirin causes irreversible platelet inhibition lasting 7–10 days\n- Prior GI bleeding history significantly elevates baseline risk (HAS-BLED +1)\n- Fish oil supplements may further potentiate anticoagulant effect\n\n## Recommended Actions\n1. Verify explicit clinical indication for combination therapy with prescriber\n2. If continued: use minimum aspirin dose (81 mg/day only)\n3. Initiate PPI (e.g., omeprazole 20mg) for GI protection\n4. Increase INR monitoring: weekly × 4 weeks, then monthly\n\n## Patient Counseling Points\n- Report immediately: black/tarry stool, prolonged bleeding, unusual bruising, severe headache\n- Avoid all NSAIDs (ibuprofen, naproxen, diclofenac)\n- Limit alcohol to ≤1 drink/day\n- Disclose ALL supplements at every pharmacy and physician visit\n\n## Monitoring Parameters\n- INR: weekly for 4 weeks → monthly when stable (target 2.0–3.0)\n- CBC with platelets: baseline, then at 3 months\n- Stool occult blood if any GI symptoms develop`
+  }
+};
+
+function MarkdownLite({ text, color }) {
+  return (
+    <div>
+      {text.split("\n").map((line, i) => {
+        if (line.startsWith("## "))
+          return <div key={i} style={{color,fontFamily:"'Space Mono',monospace",fontSize:"11px",letterSpacing:"1.5px",fontWeight:"700",marginTop:"14px",marginBottom:"6px",textTransform:"uppercase"}}>{line.replace("## ","")}</div>;
+        if (line.startsWith("- ") || line.startsWith("• "))
+          return <div key={i} style={{paddingLeft:"12px",marginBottom:"4px"}}><span style={{color,marginRight:"8px"}}>›</span>{line.replace(/^[-•] /,"")}</div>;
+        if (line.match(/^\d+\. /))
+          return <div key={i} style={{paddingLeft:"12px",marginBottom:"4px"}}><span style={{color,marginRight:"8px"}}>{line.match(/^\d+/)[0]}.</span>{line.replace(/^\d+\. /,"")}</div>;
+        if (line.includes(": [") && line.includes("]")) {
+          const [label,val] = line.split(": ");
+          const riskMap={LOW:"#81C784",MODERATE:"#FFB74D",HIGH:"#EF5350",CRITICAL:"#FF1744"};
+          const rk = Object.keys(riskMap).find(r=>val?.includes(r));
+          return <div key={i} style={{marginBottom:"6px"}}><span style={{color:"#8b949e"}}>{label}: </span>{rk?<span style={{background:riskMap[rk]+"22",color:riskMap[rk],padding:"2px 10px",borderRadius:"4px",fontFamily:"'Space Mono',monospace",fontSize:"12px",fontWeight:"700",border:`1px solid ${riskMap[rk]}44`}}>{rk}</span>:val}</div>;
+        }
+        return <div key={i} style={{marginBottom:line?"4px":"8px",color:"#c9d1d9"}}>{line}</div>;
+      })}
+    </div>
+  );
+}
+
+function AgentBubble({ agentKey, text, isActive, isComplete }) {
+  const cfg = AGENT_CONFIG[agentKey];
+  return (
+    <div style={{marginBottom:"24px",opacity:isActive||isComplete?1:0.3,transition:"opacity 0.4s"}}>
+      <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"8px"}}>
+        <div style={{width:"36px",height:"36px",borderRadius:"50%",background:`${cfg.color}22`,border:`2px solid ${isActive?cfg.color:isComplete?cfg.color+"88":"#333"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"16px",transition:"all 0.3s",boxShadow:isActive?`0 0 16px ${cfg.color}44`:"none"}}>
+          {cfg.emoji}
+        </div>
+        <div style={{fontSize:"11px",letterSpacing:"2px",color:cfg.color,fontFamily:"'Space Mono',monospace",fontWeight:"700"}}>{cfg.label}</div>
+        {isActive && (
+          <div style={{marginLeft:"auto",display:"flex",gap:"4px"}}>
+            {[0,1,2].map(i=><div key={i} style={{width:"6px",height:"6px",borderRadius:"50%",background:cfg.color,animation:`pulse 1s ease-in-out ${i*.2}s infinite`}}/>)}
+          </div>
+        )}
+      </div>
+      {text && (
+        <div style={{marginLeft:"46px",background:"#0d1117",border:`1px solid ${isActive?cfg.color+"44":"#1e2530"}`,borderRadius:"12px",borderTopLeftRadius:"4px",padding:"16px",fontSize:"14px",lineHeight:"1.7",color:"#c9d1d9",fontFamily:"'IBM Plex Sans',sans-serif",whiteSpace:"pre-wrap",transition:"border-color 0.3s"}}>
+          {agentKey==="arbitrator"?<MarkdownLite text={text} color={cfg.color}/>:text}
+          {isActive&&<span style={{display:"inline-block",width:"2px",height:"14px",background:cfg.color,marginLeft:"2px",verticalAlign:"middle",animation:"blink 0.8s step-end infinite"}}/>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [drugs, setDrugs] = useState(["",""]);
+  const [patientInfo, setPatientInfo] = useState("");
+  const [indication, setIndication] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [agentTexts, setAgentTexts] = useState({});
+  const [activeAgent, setActiveAgent] = useState(null);
+  const [completedAgents, setCompletedAgents] = useState(new Set());
+  const [isDone, setIsDone] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [showApiInput, setShowApiInput] = useState(false);
+  const scrollRef = useRef(null);
+
+  useEffect(()=>{
+    if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  },[agentTexts,activeAgent]);
+
+  const loadExample = (ex)=>{setDrugs(ex.drugs);setPatientInfo(ex.patient_info);setIndication(ex.indication)};
+  const addDrug = ()=>setDrugs([...drugs,""]);
+  const updateDrug = (i,v)=>{const d=[...drugs];d[i]=v;setDrugs(d)};
+  const removeDrug = (i)=>setDrugs(drugs.filter((_,idx)=>idx!==i));
+
+  const streamText = async (agentKey, text, setter) => {
+    const words = text.split(" ");
+    for(let i=0;i<words.length;i++){
+      await new Promise(r=>setTimeout(r,18));
+      setter(prev=>({...prev,[agentKey]:(prev[agentKey]||"")+(i>0?" ":"")+words[i]}));
+    }
+  };
+
+  const runWithAPI = async (validDrugs) => {
+    const sequence = ["patient","pharmacist","physician","arbitrator"];
+    let conversationLog = "";
+
+    const agentSystemPrompts = {
+      patient: `You are a Patient Agent in a pharmaceutical safety simulation. You represent a patient receiving the prescription. Express concerns about side effects from the patient's perspective, note lifestyle factors, ask practical questions about administration timing and food interactions, mention allergy history or past adverse reactions. Be realistic and slightly worried. Respond in 3-5 concise sentences.`,
+      pharmacist: `You are a Clinical Pharmacist Agent. Identify ALL drug-drug interactions with mechanism (CYP450, P-gp, pharmacodynamic), flag pharmacokinetic issues, check dosing appropriateness, note contraindications and black box warnings, suggest alternatives if needed. Use proper pharmacological terminology. Respond in 5-7 sentences.`,
+      physician: `You are a Clinical Physician Agent. Evaluate whether the drug combination makes clinical sense, consider risk-benefit ratio, assess if doses align with clinical guidelines, note monitoring parameters. Balance safety with therapeutic efficacy. Respond in 4-6 sentences.`,
+      arbitrator: `You are the Arbitrator Agent. Generate a structured final safety report with these sections: ## Risk Assessment (Overall Risk Level: [LOW/MODERATE/HIGH/CRITICAL], Key Interactions Found), ## Critical Warnings (bullet points), ## Recommended Actions (numbered), ## Patient Counseling Points (bullets), ## Monitoring Parameters (bullets). Be concise and actionable.`
+    };
+
+    for(const agentKey of sequence){
+      setActiveAgent(agentKey);
+      setAgentTexts(prev=>({...prev,[agentKey]:""}));
+
+      const userMsg = agentKey==="arbitrator"
+        ? `Based on this multi-agent discussion:\n${conversationLog}\n\nGenerate the final consensus safety report.`
+        : `Prescription: ${validDrugs.join(", ")}\nPatient: ${patientInfo||"Adult, no additional info"}\nIndication: ${indication||"Not specified"}\n\n${conversationLog?"Previous agents said:\n"+conversationLog:"You are the first agent to review this."}`;
+
+      const resp = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,system:agentSystemPrompts[agentKey],messages:[{role:"user",content:userMsg}]})
+      });
+      const data = await resp.json();
+      const responseText = data.content?.[0]?.text || "Agent response unavailable.";
+
+      await streamText(agentKey, responseText, setAgentTexts);
+      if(agentKey!=="arbitrator") conversationLog+=`\n\n[${AGENT_CONFIG[agentKey].name}]:\n${responseText}`;
+      setCompletedAgents(prev=>new Set([...prev,agentKey]));
+      setActiveAgent(null);
+      await new Promise(r=>setTimeout(r,350));
+    }
+    setIsDone(true);
+    setIsRunning(false);
+  };
+
+  const runDemo = async (validDrugs) => {
+    const r = DEMO_RESPONSES.warfarin;
+    const sequence = [["patient",r.patient],["pharmacist",r.pharmacist],["physician",r.physician],["arbitrator",r.arbitrator]];
+    for(const [agentKey,text] of sequence){
+      setActiveAgent(agentKey);
+      setAgentTexts(prev=>({...prev,[agentKey]:""}));
+      await streamText(agentKey,text,setAgentTexts);
+      setCompletedAgents(prev=>new Set([...prev,agentKey]));
+      setActiveAgent(null);
+      await new Promise(r=>setTimeout(r,400));
+    }
+    setIsDone(true);
+    setIsRunning(false);
+  };
+
+  const runSimulation = async () => {
+    const validDrugs = drugs.filter(d=>d.trim());
+    if(validDrugs.length<2) return;
+    setIsRunning(true);
+    setAgentTexts({});setActiveAgent(null);setCompletedAgents(new Set());setIsDone(false);
+    if(apiKey.trim()) await runWithAPI(validDrugs);
+    else await runDemo(validDrugs);
+  };
+
+  const hasValid = drugs.filter(d=>d.trim()).length>=2;
+
+  const inputStyle = {width:"100%",background:"#0d1117",border:"1px solid #1e2530",borderRadius:"8px",padding:"10px 12px",color:"#c9d1d9",fontSize:"13px",fontFamily:"'IBM Plex Sans',sans-serif",transition:"border-color 0.2s"};
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0a0e14",color:"#c9d1d9"}}>
+      {/* Header */}
+      <div style={{borderBottom:"1px solid #1e2530",padding:"18px 28px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
+          <span style={{fontSize:"22px"}}>💊</span>
+          <div>
+            <div style={{fontFamily:"'Space Mono',monospace",fontSize:"17px",fontWeight:"700",color:"#e6edf3",letterSpacing:"1px"}}>PharmaAgent</div>
+            <div style={{fontSize:"10px",color:"#8b949e",letterSpacing:"2px",textTransform:"uppercase"}}>Multi-Agent Pharmaceutical Safety Simulation</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+          {["patient","pharmacist","physician","arbitrator"].map(k=>(
+            <div key={k} style={{width:"8px",height:"8px",borderRadius:"50%",background:completedAgents.has(k)?AGENT_CONFIG[k].color:activeAgent===k?AGENT_CONFIG[k].color:"#1e2530",transition:"background 0.3s",boxShadow:activeAgent===k?`0 0 8px ${AGENT_CONFIG[k].color}`:"none"}}/>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:"flex",height:"calc(100vh - 69px)"}}>
+        {/* Left panel */}
+        <div style={{width:"360px",borderRight:"1px solid #1e2530",padding:"20px",overflowY:"auto",flexShrink:0}}>
+
+          {/* Examples */}
+          <div style={{marginBottom:"20px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"2px",color:"#8b949e",textTransform:"uppercase",marginBottom:"10px",fontFamily:"'Space Mono',monospace"}}>Quick Examples</div>
+            <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
+              {EXAMPLE_CASES.map((ex,i)=>(
+                <button key={i} onClick={()=>loadExample(ex)}
+                  style={{background:"#0d1117",border:"1px solid #1e2530",borderRadius:"8px",padding:"9px 12px",color:"#8b949e",fontSize:"12px",cursor:"pointer",textAlign:"left",fontFamily:"'Space Mono',monospace",transition:"all 0.2s"}}
+                  onMouseEnter={e=>{e.target.style.borderColor="#81C784";e.target.style.color="#c9d1d9"}}
+                  onMouseLeave={e=>{e.target.style.borderColor="#1e2530";e.target.style.color="#8b949e"}}>
+                  {ex.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Drugs */}
+          <div style={{marginBottom:"16px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"2px",color:"#8b949e",textTransform:"uppercase",marginBottom:"10px",fontFamily:"'Space Mono',monospace"}}>Medications</div>
+            {drugs.map((drug,i)=>(
+              <div key={i} style={{display:"flex",gap:"8px",marginBottom:"7px",alignItems:"center"}}>
+                <div style={{width:"18px",fontSize:"11px",color:"#3d4a5a",fontFamily:"'Space Mono',monospace",textAlign:"center",flexShrink:0}}>{String.fromCharCode(65+i)}</div>
+                <input value={drug} onChange={e=>updateDrug(i,e.target.value)} placeholder="e.g. Warfarin 5mg" style={inputStyle}/>
+                {drugs.length>2&&<button onClick={()=>removeDrug(i)} style={{background:"none",border:"none",color:"#3d4a5a",cursor:"pointer",fontSize:"16px"}}>×</button>}
+              </div>
+            ))}
+            <button onClick={addDrug} style={{background:"none",border:"1px dashed #1e2530",borderRadius:"8px",padding:"7px",color:"#3d4a5a",fontSize:"11px",cursor:"pointer",width:"100%",marginTop:"4px",fontFamily:"'Space Mono',monospace",transition:"all 0.2s"}}
+              onMouseEnter={e=>{e.target.style.borderColor="#81C78444";e.target.style.color="#81C784"}}
+              onMouseLeave={e=>{e.target.style.borderColor="#1e2530";e.target.style.color="#3d4a5a"}}>
+              + Add medication
+            </button>
+          </div>
+
+          <div style={{marginBottom:"14px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"2px",color:"#8b949e",textTransform:"uppercase",marginBottom:"8px",fontFamily:"'Space Mono',monospace"}}>Patient Info</div>
+            <textarea value={patientInfo} onChange={e=>setPatientInfo(e.target.value)} placeholder="Age, weight, renal function, allergies..." rows={3} style={{...inputStyle,resize:"none",lineHeight:"1.5"}}/>
+          </div>
+
+          <div style={{marginBottom:"16px"}}>
+            <div style={{fontSize:"10px",letterSpacing:"2px",color:"#8b949e",textTransform:"uppercase",marginBottom:"8px",fontFamily:"'Space Mono',monospace"}}>Indication</div>
+            <input value={indication} onChange={e=>setIndication(e.target.value)} placeholder="Clinical indication or diagnosis" style={inputStyle}/>
+          </div>
+
+          {/* API Key */}
+          <div style={{marginBottom:"16px"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"6px"}}>
+              <div style={{fontSize:"10px",letterSpacing:"2px",color:"#8b949e",textTransform:"uppercase",fontFamily:"'Space Mono',monospace"}}>API Key (Optional)</div>
+              <button onClick={()=>setShowApiInput(!showApiInput)} style={{background:"none",border:"none",color:"#3d4a5a",fontSize:"11px",cursor:"pointer",fontFamily:"'Space Mono',monospace"}}>
+                {showApiInput?"hide":"show"}
+              </button>
+            </div>
+            {showApiInput&&<input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="sk-ant-... (uses live Claude API)" style={inputStyle}/>}
+            {!showApiInput&&<div style={{fontSize:"11px",color:"#3d4a5a"}}>No key → Demo mode with pre-built Warfarin + Aspirin case</div>}
+          </div>
+
+          <button onClick={runSimulation} disabled={!hasValid||isRunning}
+            style={{width:"100%",padding:"13px",background:hasValid&&!isRunning?"linear-gradient(135deg,#81C784,#4CAF50)":"#1e2530",border:"none",borderRadius:"10px",color:hasValid&&!isRunning?"#0a0e14":"#3d4a5a",fontSize:"12px",fontWeight:"700",fontFamily:"'Space Mono',monospace",letterSpacing:"1.5px",cursor:hasValid&&!isRunning?"pointer":"not-allowed",transition:"all 0.3s",textTransform:"uppercase",animation:hasValid&&!isRunning?"glow 2s ease-in-out infinite":"none"}}>
+            {isRunning?"SIMULATING...":"RUN SIMULATION"}
+          </button>
+
+          <div style={{marginTop:"12px",padding:"10px",background:"#1a1a0a",border:"1px solid #333300",borderRadius:"8px"}}>
+            <div style={{fontSize:"11px",color:"#666633",lineHeight:"1.5"}}>⚠️ Educational & research use only. Not a substitute for clinical judgment.</div>
+          </div>
+        </div>
+
+        {/* Right panel */}
+        <div ref={scrollRef} style={{flex:1,padding:"28px",overflowY:"auto"}}>
+          {Object.keys(agentTexts).length===0&&!isRunning?(
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",opacity:0.4}}>
+              <div style={{fontSize:"48px",marginBottom:"16px"}}>🔬</div>
+              <div style={{fontFamily:"'Space Mono',monospace",fontSize:"12px",color:"#8b949e",letterSpacing:"2px",textTransform:"uppercase"}}>Awaiting prescription input</div>
+              <div style={{fontSize:"12px",color:"#3d4a5a",marginTop:"8px"}}>Select an example or enter medications to begin</div>
+            </div>
+          ):(
+            <div style={{maxWidth:"740px",animation:"fadeIn 0.4s ease"}}>
+              <div style={{marginBottom:"28px"}}>
+                <div style={{fontSize:"10px",letterSpacing:"3px",color:"#3d4a5a",fontFamily:"'Space Mono',monospace",textTransform:"uppercase",marginBottom:"6px"}}>Analyzing</div>
+                <div style={{fontSize:"18px",color:"#e6edf3",fontWeight:"500"}}>{drugs.filter(d=>d.trim()).join(" + ")}</div>
+              </div>
+              {["patient","pharmacist","physician","arbitrator"].map(key=>
+                (agentTexts[key]!==undefined||activeAgent===key)&&(
+                  <AgentBubble key={key} agentKey={key} text={agentTexts[key]||""} isActive={activeAgent===key} isComplete={completedAgents.has(key)}/>
+                )
+              )}
+              {isDone&&(
+                <div style={{marginTop:"20px",padding:"14px",background:"#0d1117",border:"1px solid #81C78433",borderRadius:"12px",display:"flex",alignItems:"center",gap:"12px",animation:"fadeIn 0.4s ease"}}>
+                  <div style={{fontSize:"18px"}}>✅</div>
+                  <div>
+                    <div style={{fontFamily:"'Space Mono',monospace",fontSize:"11px",color:"#81C784",letterSpacing:"1px"}}>SIMULATION COMPLETE</div>
+                    <div style={{fontSize:"12px",color:"#8b949e",marginTop:"2px"}}>4 agents reached consensus · Review report above</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
